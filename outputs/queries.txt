@@ -1,0 +1,333 @@
+DS4300 - MongoDB Tutorial
+Dataset: CDC Social Vulnerability Index (King County, WA)
+Collection: ds4300.svi  |  Documents: 397
+=========================================================
+
+Each document structure:
+{
+  "year": 2018,
+  "geography": { "geoid": "...", "type": "...", "name": "..." },
+  "population": { "total": ..., "condition_weighted": ... },
+  "vulnerability": {
+    "condition_score": ..., "rpl_themes": ..., "quintile": ...,
+    "f_total": ..., "weighted_avg_quintile": ..., "not_socially_vulnerable": ...
+  },
+  "shape": { "area": ..., "length": ... }
+}
+
+=========================================================
+Q1. Which census tracts are in quintile 1 (most socially vulnerable)?
+    (Show the first 5 results with their name and vulnerability score.)
+=========================================================
+
+db.svi.find(
+  { "vulnerability.quintile": 1 },
+  { "geography.name": 1, "vulnerability.quintile": 1, "vulnerability.rpl_themes": 1, _id: 0 }
+).limit(5)
+
+-- OUTPUT --
+[
+  {
+    geography: { name: 'King County' },
+    vulnerability: { rpl_themes: 0.9127, quintile: 1 }
+  },
+  {
+    geography: { name: 'King County' },
+    vulnerability: { rpl_themes: 0.9425, quintile: 1 }
+  },
+  {
+    geography: { name: 'King County' },
+    vulnerability: { rpl_themes: 0.887, quintile: 1 }
+  },
+  {
+    geography: { name: 'King County' },
+    vulnerability: { rpl_themes: 0.9938, quintile: 1 }
+  },
+  {
+    geography: { name: 'King County' },
+    vulnerability: { rpl_themes: 0.8663, quintile: 1 }
+  }
+]
+
+
+=========================================================
+Q2. What are the 5 most populated census tracts?
+=========================================================
+
+db.svi.find(
+  {},
+  { "geography.geoid": 1, "population.total": 1, "vulnerability.quintile": 1, _id: 0 }
+).sort({ "population.total": -1 }).limit(5)
+
+-- OUTPUT --
+[
+  {
+    geography: { geoid: '53033032210' },
+    population: { total: 13671 },
+    vulnerability: { quintile: 3 }
+  },
+  {
+    geography: { geoid: '53033032602' },
+    population: { total: 13392 },
+    vulnerability: { quintile: 5 }
+  },
+  {
+    geography: { geoid: '53033032208' },
+    population: { total: 9749 },
+    vulnerability: { quintile: 3 }
+  },
+  {
+    geography: { geoid: '53033030401' },
+    population: { total: 9736 },
+    vulnerability: { quintile: 2 }
+  },
+  {
+    geography: { geoid: '53033029801' },
+    population: { total: 9466 },
+    vulnerability: { quintile: 2 }
+  }
+]
+
+
+=========================================================
+Q3. How many census tracts have at least one flagged vulnerability factor?                                                                                f_total is a binary flag: 1 = at least one factor in the top 10th percentile)  
+=========================================================
+
+db.svi.countDocuments({ "vulnerability.f_total": 1 }) 
+
+-- OUTPUT --
+157
+
+
+=========================================================
+Q4. What is the average social vulnerability score (rpl_themes) per quintile?
+    (Lower rpl_themes = more vulnerable. Grouped and sorted by quintile.)
+=========================================================
+
+db.svi.aggregate([
+  { $group: {
+      _id: "$vulnerability.quintile",
+      avg_rpl_themes: { $avg: "$vulnerability.rpl_themes" },
+      tract_count:    { $sum: 1 }
+  }},
+  { $sort: { _id: 1 } }
+])
+
+-- OUTPUT --
+[
+  { _id: 1, avg_rpl_themes: 0.8775525, tract_count: 80 },
+  { _id: 2, avg_rpl_themes: 0.6207125, tract_count: 80 },
+  { _id: 3, avg_rpl_themes: 0.36600379746835443, tract_count: 79 },
+  { _id: 4, avg_rpl_themes: 0.17855569620253164, tract_count: 79 },
+  { _id: 5, avg_rpl_themes: 0.04791645569620253, tract_count: 79 }
+]
+
+
+=========================================================
+Q5. What is the total population living in each vulnerability quintile?
+=========================================================
+
+db.svi.aggregate([
+  { $group: {
+      _id: "$vulnerability.quintile",
+      total_population: { $sum: "$population.total" }
+  }},
+  { $sort: { _id: 1 } }
+])
+
+-- OUTPUT --
+[
+  { _id: 1, total_population: 433012 },
+  { _id: 2, total_population: 430762 },
+  { _id: 3, total_population: 423345 },
+  { _id: 4, total_population: 433698 },
+  { _id: 5, total_population: 397302 }
+]
+
+
+=========================================================
+Q6. Which census tracts have an extremely low condition score (below 5),
+placing them among the most socially vulnerable in King County? 
+=========================================================
+
+db.svi.find(
+  { "vulnerability.condition_score": { $lt: 5 } },
+  { "geography.geoid": 1, "vulnerability.condition_score": 1, "vulnerability.quintile": 1, _id: 0 }
+).sort({ "vulnerability.condition_score": 1 }).limit(5)
+
+-- OUTPUT --
+[
+  {
+    geography: { geoid: '53033030801' },
+    vulnerability: { condition_score: 0.42, quintile: 1 }
+  },
+  {
+    geography: { geoid: '53033030313' },
+    vulnerability: { condition_score: 0.62, quintile: 1 }
+  },
+  {
+    geography: { geoid: '53033011001' },
+    vulnerability: { condition_score: 0.83, quintile: 1 }
+  },
+  {
+    geography: { geoid: '53033029004' },
+    vulnerability: { condition_score: 0.97, quintile: 1 }
+  },
+  {
+    geography: { geoid: '53033030314' },
+    vulnerability: { condition_score: 1.18, quintile: 1 }
+  }
+]
+
+
+
+=========================================================
+Q7. What are the minimum and maximum condition scores across all tracts?
+=========================================================
+
+db.svi.aggregate([
+  { $group: {
+      _id: null,
+      min_condition: { $min: "$vulnerability.condition_score" },
+      max_condition: { $max: "$vulnerability.condition_score" },
+      avg_condition: { $avg: "$vulnerability.condition_score" }
+  }}
+])
+
+-- OUTPUT --
+[
+  {
+    _id: null,
+    min_condition: 0.42,
+    max_condition: 99.93,
+    avg_condition: 58.01843828715365
+  }
+]
+
+
+
+=========================================================
+Q8. Which tracts are highly vulnerable (quintile 1 or 2) AND have a large
+    population (over 3000 people)? These represent high-risk, high-impact areas.
+=========================================================
+
+db.svi.find(
+  {
+    $and: [
+      { "vulnerability.quintile": { $lte: 2 } },
+      { "population.total": { $gt: 3000 } }
+    ]
+  },
+  { "geography.geoid": 1, "vulnerability.quintile": 1, "population.total": 1, _id: 0 }
+).sort({ "population.total": -1 })
+
+-- OUTPUT --
+[
+  {
+    geography: { geoid: '53033030401' },
+    population: { total: 9736 },
+    vulnerability: { quintile: 2 }
+  },
+  {
+    geography: { geoid: '53033029801' },
+    population: { total: 9466 },
+    vulnerability: { quintile: 2 }
+  },
+  {
+    geography: { geoid: '53033029802' },
+    population: { total: 9297 },
+    vulnerability: { quintile: 2 }
+  },
+  {
+    geography: { geoid: '53033021700' },
+    population: { total: 8831 },
+    vulnerability: { quintile: 2 }
+  },
+  {
+    geography: { geoid: '53033026002' },
+    population: { total: 8590 },
+    vulnerability: { quintile: 1 }
+  },
+  {
+    geography: { geoid: '53033029503' },
+    population: { total: 8546 },
+    vulnerability: { quintile: 1 }
+  },
+  {
+    geography: { geoid: '53033011800' },
+    population: { total: 8415 },
+    vulnerability: { quintile: 1 }
+  },
+  {
+    geography: { geoid: '53033026100' },
+    population: { total: 8310 },
+    vulnerability: { quintile: 1 }
+  },
+  {
+    geography: { geoid: '53033030004' },
+    population: { total: 8302 },
+    vulnerability: { quintile: 1 }
+  },
+  {
+    geography: { geoid: '53033027900' },
+    population: { total: 8123 },
+    vulnerability: { quintile: 1 }
+  },
+  {
+    geography: { geoid: '53033000600' },
+    population: { total: 8061 },
+    vulnerability: { quintile: 2 }
+  },
+  {
+    geography: { geoid: '53033029700' },
+    population: { total: 8051 },
+    vulnerability: { quintile: 1 }
+  } 
+  ...
+]
+
+
+=========================================================
+Q9. Which quintile has the most census tracts?
+    (Useful for understanding the distribution of vulnerability across King County.)
+=========================================================
+
+db.svi.aggregate([
+  { $group: { _id: "$vulnerability.quintile", count: { $sum: 1 } } },
+  { $sort: { count: -1 } }
+])
+
+-- OUTPUT --
+[
+  { _id: 2, count: 80 },
+  { _id: 1, count: 80 },
+  { _id: 5, count: 79 },
+  { _id: 3, count: 79 },
+  { _id: 4, count: 79 }
+]
+
+
+
+=========================================================
+Q10. What is the average population size of census tracts in each quintile,
+     sorted from most to least vulnerable?
+     (Are vulnerable tracts smaller or larger than average?)
+=========================================================
+
+db.svi.aggregate([
+  { $group: {
+      _id: "$vulnerability.quintile",
+      avg_population: { $avg: "$population.total" },
+      avg_flagged_factors: { $avg: "$vulnerability.f_total" }
+  }},
+  { $sort: { _id: 1 } }
+])
+
+-- OUTPUT --
+[
+  { _id: 1, avg_population: 5412.65, avg_flagged_factors: 1 },
+  { _id: 2, avg_population: 5384.525, avg_flagged_factors: 0.9625 },
+  { _id: 3, avg_population: 5358.797468354431, avg_flagged_factors: 0 },
+  { _id: 4, avg_population: 5489.848101265823, avg_flagged_factors: 0 },
+  { _id: 5, avg_population: 5029.139240506329, avg_flagged_factors: 0 }
+]
